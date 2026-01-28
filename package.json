@@ -1,0 +1,9 @@
+{
+  "name": "resultatsdiploma",
+  "version": "1.0.0",
+  "description": "Application statique pour visualisation des résultats universitaires",
+  "type": "module",
+  "scripts": {
+    "build": "echo 'No build needed'"
+  }
+}
