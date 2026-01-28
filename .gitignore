@@ -27,3 +27,4 @@ uploads/
 .DS_Store
 .env
 .venv
+requirements.txt
