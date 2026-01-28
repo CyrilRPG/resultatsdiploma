@@ -146,16 +146,16 @@
                                 Prénom <span class="sort-icon">↕</span>
                             </th>
                             <th class="px-6 py-4 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100" data-sort="ue1_num">
-                                UE 1 <span class="sort-icon">↕</span>
+                                <span id="colUe1Label">UE 1</span> <span class="sort-icon">↕</span>
                             </th>
                             <th class="px-6 py-4 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100" data-sort="ue2_num">
-                                UE 2 <span class="sort-icon">↕</span>
+                                <span id="colUe2Label">UE 2</span> <span class="sort-icon">↕</span>
                             </th>
                             <th class="px-6 py-4 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100" data-sort="ue3_num">
-                                UE 3 <span class="sort-icon">↕</span>
+                                <span id="colUe3Label">UE 3</span> <span class="sort-icon">↕</span>
                             </th>
                             <th class="px-6 py-4 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100" data-sort="ue4_num">
-                                UE 4 <span class="sort-icon">↕</span>
+                                <span id="colUe4Label">UE 4</span> <span class="sort-icon">↕</span>
                             </th>
                             <th class="px-6 py-4 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100" data-sort="moyenne">
                                 Moyenne <span class="sort-icon">↕</span>
@@ -191,6 +191,8 @@
         let allData = [];
         let filteredData = [];
         let currentSort = { column: 'moyenne', direction: 'asc' };
+        // Libellés dynamiques des colonnes de notes (adaptés au fichier Excel)
+        let gradeLabels = ['UE 1', 'UE 2', 'UE 3', 'UE 4'];
 
         // DOM Elements
         const uploadZone = document.getElementById('uploadZone');
@@ -236,16 +238,62 @@
             return isNaN(num) ? null : num;
         }
 
+        function normalizeHeader(value) {
+            if (!value) return '';
+            return String(value)
+                .toLowerCase()
+                .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // enlever les accents
+                .replace(/[^a-z0-9]/g, ''); // enlever espaces, ponctuation, etc.
+        }
+
         function findColumnIndex(columns, searchTerms) {
             for (let i = 0; i < columns.length; i++) {
-                const col = String(columns[i]).toLowerCase();
+                const col = normalizeHeader(columns[i]);
                 for (const term of searchTerms) {
-                    if (col.includes(term.toLowerCase())) {
+                    const normTerm = normalizeHeader(term);
+                    if (col.includes(normTerm)) {
                         return i;
                     }
                 }
             }
             return -1;
+        }
+
+        // Détecter automatiquement les colonnes de notes (0-20) même si les noms changent
+        function detectNumericColumns(headers, dataRows, excludedIndices = new Set()) {
+            const scores = new Map();
+
+            for (let colIdx = 0; colIdx < headers.length; colIdx++) {
+                if (excludedIndices.has(colIdx)) continue;
+
+                let numericCount = 0;
+                let totalCount = 0;
+
+                for (const row of dataRows) {
+                    if (!row || row.length <= colIdx) continue;
+                    const value = row[colIdx];
+                    if (value === null || value === undefined || value === '') continue;
+                    totalCount++;
+
+                    const num = parseNote(value);
+                    if (num !== null && num >= 0 && num <= 20) {
+                        numericCount++;
+                    }
+                }
+
+                if (totalCount > 0 && numericCount > 0) {
+                    const ratio = numericCount / totalCount;
+                    // On garde les colonnes où au moins 30% des valeurs ressemblent à des notes
+                    if (ratio >= 0.3) {
+                        scores.set(colIdx, numericCount);
+                    }
+                }
+            }
+
+            // Trier par nombre de valeurs numériques décroissant
+            return Array.from(scores.entries())
+                .sort((a, b) => b[1] - a[1])
+                .map(([idx]) => idx);
         }
 
         function processExcelData(workbook) {
@@ -261,14 +309,33 @@
             const headers = jsonData[0];
             const dataRows = jsonData.slice(1);
 
-            // Trouver les indices des colonnes
-            const nomIdx = findColumnIndex(headers, ['nom']);
-            const prenomIdx = findColumnIndex(headers, ['prénom', 'prenom']);
-            const ue1Idx = findColumnIndex(headers, ['ue 1', 'ue1']);
-            const ue2Idx = findColumnIndex(headers, ['ue 2', 'ue2']);
-            const ue3Idx = findColumnIndex(headers, ['ue 3', 'ue3', 'ue 3.1']);
-            const ue4Idx = findColumnIndex(headers, ['ue 4', 'ue4']);
-            const rangIdx = findColumnIndex(headers, ['rang']);
+            // Trouver les indices des colonnes de base (nom, prénom, rang)
+            const nomIdx = findColumnIndex(headers, ['nom', 'name']);
+            const prenomIdx = findColumnIndex(headers, ['prénom', 'prenom', 'prename', 'first']);
+            const rangIdx = findColumnIndex(headers, ['rang', 'rank', 'classement', 'position']);
+
+            // Détecter automatiquement les colonnes de notes (0-20)
+            const excluded = new Set();
+            if (nomIdx >= 0) excluded.add(nomIdx);
+            if (prenomIdx >= 0) excluded.add(prenomIdx);
+            if (rangIdx >= 0) excluded.add(rangIdx);
+
+            const numericCols = detectNumericColumns(headers, dataRows, excluded);
+            // On garde au maximum 4 colonnes de notes
+            const gradeIdxs = numericCols.slice(0, 4);
+
+            // Mettre à jour les libellés affichés dans le tableau en fonction des noms de colonnes du fichier
+            gradeLabels = gradeIdxs.map((idx, i) => {
+                const header = headers[idx];
+                if (header && String(header).trim() !== '') {
+                    return String(header);
+                }
+                return `Note ${i + 1}`;
+            });
+            // Compléter à 4 entrées pour éviter les erreurs d'index
+            while (gradeLabels.length < 4) {
+                gradeLabels.push(`Note ${gradeLabels.length + 1}`);
+            }
 
             const processedData = [];
 
@@ -277,19 +344,24 @@
 
                 const nom = nomIdx >= 0 ? row[nomIdx] : null;
                 const prenom = prenomIdx >= 0 ? row[prenomIdx] : null;
-                const ue1 = ue1Idx >= 0 ? row[ue1Idx] : null;
-                const ue2 = ue2Idx >= 0 ? row[ue2Idx] : null;
-                const ue3 = ue3Idx >= 0 ? row[ue3Idx] : null;
-                const ue4 = ue4Idx >= 0 ? row[ue4Idx] : null;
                 const rang = rangIdx >= 0 ? row[rangIdx] : null;
 
-                const ue1_num = parseNote(ue1);
-                const ue2_num = parseNote(ue2);
-                const ue3_num = parseNote(ue3);
-                const ue4_num = parseNote(ue4);
+                // Récupérer les valeurs de notes en fonction des colonnes détectées
+                const gradeValues = gradeIdxs.map(idx => (idx >= 0 && row.length > idx ? row[idx] : null));
+                const gradeNums = gradeValues.map(v => parseNote(v));
+
+                const ue1 = gradeValues[0] ?? null;
+                const ue2 = gradeValues[1] ?? null;
+                const ue3 = gradeValues[2] ?? null;
+                const ue4 = gradeValues[3] ?? null;
+
+                const ue1_num = gradeNums[0] ?? null;
+                const ue2_num = gradeNums[1] ?? null;
+                const ue3_num = gradeNums[2] ?? null;
+                const ue4_num = gradeNums[3] ?? null;
 
                 // Calculer la moyenne
-                const notes = [ue1_num, ue2_num, ue3_num, ue4_num].filter(n => n !== null);
+                const notes = gradeNums.filter(n => n !== null);
                 const moyenne = notes.length > 0 ? notes.reduce((a, b) => a + b, 0) / notes.length : null;
 
                 processedData.push({
@@ -309,6 +381,16 @@
             });
 
             return processedData;
+        }
+
+        function updateGradeHeaders() {
+            const ids = ['colUe1Label', 'colUe2Label', 'colUe3Label', 'colUe4Label'];
+            ids.forEach((id, index) => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                const label = gradeLabels[index];
+                el.textContent = label || `Note ${index + 1}`;
+            });
         }
 
         function handleFile(file) {
@@ -335,6 +417,7 @@
 
                     allData = processedData;
                     filteredData = [...allData];
+                    updateGradeHeaders();
                     sortData();
                     displayResults();
                     showSections();
