@@ -1,8 +1,12 @@
 [build]
   publish = "."
-  command = "echo 'No build needed for static site'"
+  # Pas de build nécessaire - site statique pur
 
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
+
+# Désactiver la détection automatique de build
+[build.environment]
+  NODE_VERSION = "18"

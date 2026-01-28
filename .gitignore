@@ -28,3 +28,8 @@ uploads/
 .env
 .venv
 requirements.txt
+app.py
+Procfile
+runtime.txt
+templates/
+*.py
